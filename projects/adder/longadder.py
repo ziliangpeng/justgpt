@@ -1,8 +1,11 @@
 """
 Trains a GPT to add n-digit numbers.
+
+    python simpleadder.py --data.ndigit=3
 """
 
 import os
+import random
 import sys
 import json
 
@@ -68,7 +71,7 @@ class AdditionDataset(Dataset):
     @staticmethod
     def get_default_config():
         C = CN()
-        C.ndigit = 2
+        C.ndigit = 7
         return C
 
     def __init__(self, config, split):
@@ -77,13 +80,6 @@ class AdditionDataset(Dataset):
 
         # split up all addition problems into either training data or test data
         ndigit = self.config.ndigit
-        assert ndigit <= 3, "the lines below would be very memory inefficient, in future maybe refactor to support"
-        num = (10**ndigit)**2 # total number of possible addition problems with ndigit numbers
-        rng = torch.Generator()
-        rng.manual_seed(1337)
-        perm = torch.randperm(num, generator=rng)
-        num_test = min(int(num*0.2), 500) # 20% of the whole dataset, or only up to 500
-        self.ixes = perm[:num_test] if split == 'test' else perm[num_test:]
 
     def get_vocab_size(self):
         return 10 # digits 0..9
@@ -95,12 +91,16 @@ class AdditionDataset(Dataset):
         return 3*self.config.ndigit + 1 - 1
 
     def __len__(self):
-        return self.ixes.nelement()
+        if self.split == 'test':
+            return 500
+        else:
+            return (10 ** self.config.ndigit) ** 2
 
     def __getitem__(self, idx):
         ndigit = self.config.ndigit
         # given a problem index idx, first recover the associated a + b
-        idx = self.ixes[idx].item()
+        # TODO: with pure randomness, train and test will overlap. We need to ensure a clean separation, but first let the mixed data suceed.
+        idx = random.randint(0, (10 ** self.config.ndigit) ** 2 - 1)
         nd = 10**ndigit
         a = idx // nd
         b = idx %  nd
@@ -181,12 +181,13 @@ if __name__ == '__main__':
     def batch_end_callback(trainer):
         global top_score
 
-        if trainer.iter_num % 10 == 0:
+        if trainer.iter_num % 1000 == 0:
             print(f"iter_dt {trainer.iter_dt * 1000:.2f}ms; iter {trainer.iter_num}: train loss {trainer.loss.item():.5f}")
 
-        if trainer.iter_num % 500 == 0:
+        if trainer.iter_num % 10000 == 0:
             # evaluate both the train and test score
-            train_max_batches = {1: None, 2: None, 3: 5}[config.data.ndigit] # if ndigit=2 we can afford the whole train set, ow no
+            # train_max_batches = {1: None, 2: None, 3: 5}[config.data.ndigit] # if ndigit=2 we can afford the whole train set, ow no
+            train_max_batches = 100
             model.eval()
             with torch.no_grad():
                 train_score = eval_split(trainer, 'train', max_batches=train_max_batches)
