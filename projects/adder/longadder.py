@@ -180,13 +180,24 @@ if __name__ == '__main__':
 
     # iteration callback
     top_score = 0
+    losses = [100.0] * 1000 # rolling array
     def batch_end_callback(trainer):
         global top_score
 
-        statsd.gauge('llm.adder.loss', int(trainer.loss.item() * 1000), tags=["n:" + str(config.data.ndigit), "fixed:1", "model:" + config.model.model_type])
+        true_loss = trainer.loss.item()
+        losses[trainer.iter_num % 1000] = true_loss
+        avg_loss = sum(losses) / len(losses)
+        statsd.gauge('llm.adder.loss', int(true_loss * 1000), tags=["n:" + str(config.data.ndigit), "fixed:1", "model:" + config.model.model_type])
+
+        if trainer.iter_num > 250000:
+            print("Reached 250k iterations, stopping")
+            sys.exit(0)
+        if avg_loss < 0.05:
+            print(f"Avg loss is {avg_loss}, less than 0.05, stopping")
+            sys.exit(0)
 
         if trainer.iter_num % 1000 == 0:
-            print(f"iter_dt {trainer.iter_dt * 1000:.2f}ms; iter {trainer.iter_num}: train loss {trainer.loss.item():.5f}")
+            print(f"iter_dt {trainer.iter_dt * 1000:.2f}ms; iter {trainer.iter_num}: train loss {trainer.loss.item():.5f}; avg loss {avg_loss:.5f}")
 
         if trainer.iter_num % 10000 == 0:
             # evaluate both the train and test score
