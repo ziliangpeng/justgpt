@@ -9,6 +9,8 @@ import random
 import sys
 import json
 
+from datadog import statsd
+
 import torch
 from torch.utils.data import Dataset
 from torch.utils.data.dataloader import DataLoader
@@ -180,6 +182,8 @@ if __name__ == '__main__':
     top_score = 0
     def batch_end_callback(trainer):
         global top_score
+
+        statsd.gauge('llm.adder.loss', int(trainer.loss.item() * 1000), tags=["n:" + str(config.data.ndigit), "fixed:1", "model:" + config.model.model_type])
 
         if trainer.iter_num % 1000 == 0:
             print(f"iter_dt {trainer.iter_dt * 1000:.2f}ms; iter {trainer.iter_num}: train loss {trainer.loss.item():.5f}")
