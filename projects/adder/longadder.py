@@ -169,7 +169,7 @@ if __name__ == '__main__':
             correct = (d3i_pred == d3i_gt).cpu() # Software 1.0 vs. Software 2.0 fight RIGHT on this line haha
             for i in range(x.size(0)):
                 results.append(int(correct[i]))
-                if not correct[i] and mistakes_printed_already < 5: # only print up to 5 mistakes to get a sense
+                if not correct[i] and mistakes_printed_already < 2: # only print up to 5 mistakes to get a sense
                     mistakes_printed_already += 1
                     print("GPT claims that %d + %d = %d but gt is %d" % (d1i[i], d2i[i], d3i_pred[i], d3i_gt[i]))
             if max_batches is not None and b+1 >= max_batches:
