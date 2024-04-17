@@ -2,6 +2,10 @@
 Trains a GPT to add n-digit numbers.
 
     python simpleadder.py --data.ndigit=3
+
+
+it seems ok to get to 6 digits using gpt-nano (occasionally stuck), start to get stuck a lot at 7 digits.
+using gpt-micro makes 7 digits better.
 """
 
 import os
@@ -196,8 +200,9 @@ if __name__ == '__main__':
         if trainer.iter_num > 250000:
             print("Reached 250k iterations, stopping")
             sys.exit(0)
-        if avg_loss < 0.01:
-            print(f"Avg loss is {avg_loss}, less than 0.01, stopping")
+        target_loss = config.data.ndigit * 0.01
+        if avg_loss < target_loss:
+            print(f"Avg loss is {avg_loss}, less than {target_loss}, stopping")
             sys.exit(0)
 
         if trainer.iter_num % 1000 == 0:
