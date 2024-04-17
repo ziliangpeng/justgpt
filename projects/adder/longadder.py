@@ -39,7 +39,7 @@ def get_config():
 
     # trainer
     C.trainer = Trainer.get_default_config()
-    C.trainer.learning_rate = 5e-4 # the model we're using is so small that we can go a bit faster
+    C.trainer.learning_rate = 3e-4 # the model we're using is so small that we can go a bit faster
 
     return C
 
@@ -180,20 +180,24 @@ if __name__ == '__main__':
 
     # iteration callback
     top_score = 0
-    losses = [100.0] * 1000 # rolling array
+    losses = []
     def batch_end_callback(trainer):
         global top_score
 
         true_loss = trainer.loss.item()
-        losses[trainer.iter_num % 1000] = true_loss
+        LOSS_AVG_LEN = 5000
+        if len(losses) < LOSS_AVG_LEN:
+            losses.append(true_loss)
+        else:
+            losses[trainer.iter_num % LOSS_AVG_LEN] = true_loss
         avg_loss = sum(losses) / len(losses)
         statsd.gauge('llm.adder.loss', int(true_loss * 1000), tags=["n:" + str(config.data.ndigit), "fixed:1", "model:" + config.model.model_type])
 
         if trainer.iter_num > 250000:
             print("Reached 250k iterations, stopping")
             sys.exit(0)
-        if avg_loss < 0.05:
-            print(f"Avg loss is {avg_loss}, less than 0.05, stopping")
+        if avg_loss < 0.01:
+            print(f"Avg loss is {avg_loss}, less than 0.01, stopping")
             sys.exit(0)
 
         if trainer.iter_num % 1000 == 0:
