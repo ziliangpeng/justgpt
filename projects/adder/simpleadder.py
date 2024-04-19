@@ -1,5 +1,7 @@
 """
 Trains a GPT to add n-digit numbers.
+
+    python simpleadder.py --data.ndigit=3
 """
 
 import os
@@ -77,7 +79,7 @@ class AdditionDataset(Dataset):
 
         # split up all addition problems into either training data or test data
         ndigit = self.config.ndigit
-        assert ndigit <= 3, "the lines below would be very memory inefficient, in future maybe refactor to support"
+        assert ndigit <= 4, "the lines below would be very memory inefficient, in future maybe refactor to support"
         num = (10**ndigit)**2 # total number of possible addition problems with ndigit numbers
         rng = torch.Generator()
         rng.manual_seed(1337)
@@ -186,7 +188,8 @@ if __name__ == '__main__':
 
         if trainer.iter_num % 500 == 0:
             # evaluate both the train and test score
-            train_max_batches = {1: None, 2: None, 3: 5}[config.data.ndigit] # if ndigit=2 we can afford the whole train set, ow no
+            # train_max_batches = {1: None, 2: None, 3: 5}[config.data.ndigit] # if ndigit=2 we can afford the whole train set, ow no
+            train_max_batches = 10
             model.eval()
             with torch.no_grad():
                 train_score = eval_split(trainer, 'train', max_batches=train_max_batches)
