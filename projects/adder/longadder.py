@@ -44,6 +44,8 @@ def get_config():
     # trainer
     C.trainer = Trainer.get_default_config()
     C.trainer.learning_rate = 3e-4 # the model we're using is so small that we can go a bit faster
+    C.trainer.max_iters = 100000
+    C.trainer.batch_size = 64
 
     return C
 
@@ -100,7 +102,11 @@ class AdditionDataset(Dataset):
         if self.split == 'test':
             return 500
         else:
-            return (10 ** self.config.ndigit) ** 2
+            # l must be int32 otherwise it breaks torch.
+            l = (10 ** self.config.ndigit) ** 2
+            if l > 2000000000:
+                l = 2000000000
+            return l
 
     def __getitem__(self, idx):
         ndigit = self.config.ndigit
@@ -153,6 +159,7 @@ if __name__ == '__main__':
         ndigit = config.data.ndigit
         results = []
         mistakes_printed_already = 0
+        # TODO: this "factors" is of type long, which means our ndigit cannot exceed 18. We need to fix this.
         factors = torch.tensor([[10**i for i in range(ndigit+1)][::-1]]).to(trainer.device)
         loader = DataLoader(dataset, batch_size=100, num_workers=0, drop_last=False)
         for b, (x, y) in enumerate(loader):
