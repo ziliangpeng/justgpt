@@ -14,6 +14,7 @@ import sys
 import json
 
 from datadog import statsd
+from prometheus_client import Gauge, start_http_server
 
 import torch
 from torch.utils.data import Dataset
@@ -22,6 +23,38 @@ from torch.utils.data.dataloader import DataLoader
 from mingpt.model import GPT
 from mingpt.trainer import Trainer
 from mingpt.utils import set_seed, setup_logging, CfgNode as CN
+
+# -----------------------------------------------------------------------------
+
+# metmul. will move out.
+
+def has_datadog():
+    # return os.environ.get("METMUL_DATADOG", False)
+    return True
+
+def has_prometheus():
+    # return os.environ.get("METMUL_PROMETHEUS", False)
+    return True
+
+prom_gauge_dict = {}
+
+if has_prometheus():
+    try:
+        start_http_server(9090)
+    except Exception as e:
+        print("Error in acquiring prometheus port. Process ID:", os.getpid())
+
+def gauge(name, value, tags=None):
+    if has_datadog():
+        statsd.gauge(name, value, tags=tags)
+    if has_prometheus():
+        name = name.replace(".", "_")
+        label_kv = {kv.split(":")[0]: kv.split(":")[1] for kv in tags if ":" in kv}
+        all_tag_key = label_kv.keys()
+        gauge_dict_key = name + '@' + str(sorted(all_tag_key))
+        if gauge_dict_key not in prom_gauge_dict:
+            prom_gauge_dict[gauge_dict_key] = Gauge(name, 'auto generated: ' + name, all_tag_key)
+        prom_gauge_dict[gauge_dict_key].labels(**label_kv).set(value)
 
 # -----------------------------------------------------------------------------
 
@@ -202,7 +235,8 @@ if __name__ == '__main__':
         else:
             losses[trainer.iter_num % LOSS_AVG_LEN] = true_loss
         avg_loss = sum(losses) / len(losses)
-        statsd.gauge('llm.adder.loss', int(true_loss * 1000), tags=["n:" + str(config.data.ndigit), "fixed:1", "model:" + config.model.model_type])
+        gauge('llm.adder.loss', int(true_loss * 1000), tags=["n:" + str(config.data.ndigit), "fixed:1", "model:" + config.model.model_type])
+        gauge('llm.adder.iter_time', int(trainer.iter_dt * 1000), tags=["n:" + str(config.data.ndigit), "fixed:1", "model:" + config.model.model_type])
 
         if trainer.iter_num > 250000:
             print("Reached 250k iterations, stopping")
