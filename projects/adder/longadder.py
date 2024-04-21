@@ -13,6 +13,8 @@ import random
 import sys
 import json
 
+import numpy
+
 from datadog import statsd
 from prometheus_client import Gauge, start_http_server
 
@@ -196,8 +198,8 @@ if __name__ == '__main__':
         ndigit = config.data.ndigit
         results = []
         mistakes_printed_already = 0
-        # TODO: this "factors" is of type long, which means our ndigit cannot exceed 18. We need to fix this.
-        factors = torch.tensor([[10**i for i in range(ndigit+1)][::-1]]).to(trainer.device)
+        # for larget digit learning, factors will go beyond long64 range, and we need to python magic to deal wih it in cpu
+        factors = numpy.array([[10**i for i in range(ndigit + 1)][::-1]])
         loader = DataLoader(dataset, batch_size=100, num_workers=0, drop_last=False)
         for b, (x, y) in enumerate(loader):
             x = x.to(trainer.device)
@@ -209,12 +211,14 @@ if __name__ == '__main__':
             d3 = d1d2d3[:, -(ndigit+1):]
             d3 = d3.flip(1) # reverse the digits to their "normal" order
             # decode the integers from individual digits
+            d1d2 = d1d2.cpu()
+            d3 = d3.cpu()
             d1i = (d1d2[:,:ndigit] * factors[:,1:]).sum(1)
             d2i = (d1d2[:,ndigit:ndigit*2] * factors[:,1:]).sum(1)
             d3i_pred = (d3 * factors).sum(1)
             d3i_gt = d1i + d2i # manually calculate the ground truth
             # evaluate the correctness of the results in this batch
-            correct = (d3i_pred == d3i_gt).cpu() # Software 1.0 vs. Software 2.0 fight RIGHT on this line haha
+            correct = (d3i_pred == d3i_gt)
             for i in range(x.size(0)):
                 results.append(int(correct[i]))
                 if not correct[i] and mistakes_printed_already < 2: # only print up to 5 mistakes to get a sense
