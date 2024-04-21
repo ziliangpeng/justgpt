@@ -258,7 +258,7 @@ if __name__ == '__main__':
         if trainer.iter_num % 10000 == 0:
             # evaluate both the train and test score
             # train_max_batches = {1: None, 2: None, 3: 5}[config.data.ndigit] # if ndigit=2 we can afford the whole train set, ow no
-            train_max_batches = 100
+            train_max_batches = 5
             model.eval()
             with torch.no_grad():
                 train_score = eval_split(trainer, 'train', max_batches=train_max_batches)
