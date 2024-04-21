@@ -166,6 +166,10 @@ class AdditionDataset(Dataset):
 # -----------------------------------------------------------------------------
 
 if __name__ == '__main__':
+    # first of all, float16 will give a nan loss, due to lack of range.
+    # bfloat16 doesn't work in MPS; but it able to learn 18-digit addition on gopher.
+    # import torch
+    # torch.set_default_dtype(torch.bfloat16)
 
     # get default config and overrides from the command line, if any
     config = get_config()
@@ -235,7 +239,8 @@ if __name__ == '__main__':
         else:
             losses[trainer.iter_num % LOSS_AVG_LEN] = true_loss
         avg_loss = sum(losses) / len(losses)
-        gauge('llm.adder.loss', int(true_loss * 1000), tags=["n:" + str(config.data.ndigit), "fixed:1", "model:" + config.model.model_type])
+        if true_loss < 1e9: # float16 would mess up loss be NaN sometimes?
+            gauge('llm.adder.loss', int(true_loss * 1000), tags=["n:" + str(config.data.ndigit), "fixed:1", "model:" + config.model.model_type])
         gauge('llm.adder.iter_time', int(trainer.iter_dt * 1000), tags=["n:" + str(config.data.ndigit), "fixed:1", "model:" + config.model.model_type])
 
         target_loss = config.data.ndigit * 0.01
