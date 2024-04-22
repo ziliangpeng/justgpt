@@ -211,8 +211,8 @@ if __name__ == '__main__':
             d3 = d1d2d3[:, -(ndigit+1):]
             d3 = d3.flip(1) # reverse the digits to their "normal" order
             # decode the integers from individual digits
-            d1d2 = d1d2.cpu()
-            d3 = d3.cpu()
+            d1d2 = d1d2.cpu().numpy()
+            d3 = d3.cpu().numpy()
             d1i = (d1d2[:,:ndigit] * factors[:,1:]).sum(1)
             d2i = (d1d2[:,ndigit:ndigit*2] * factors[:,1:]).sum(1)
             d3i_pred = (d3 * factors).sum(1)
