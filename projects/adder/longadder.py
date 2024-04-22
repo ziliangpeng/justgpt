@@ -13,7 +13,10 @@ import random
 import sys
 import json
 
+import numpy
+
 from datadog import statsd
+from prometheus_client import Gauge, start_http_server
 
 import torch
 from torch.utils.data import Dataset
@@ -22,6 +25,38 @@ from torch.utils.data.dataloader import DataLoader
 from mingpt.model import GPT
 from mingpt.trainer import Trainer
 from mingpt.utils import set_seed, setup_logging, CfgNode as CN
+
+# -----------------------------------------------------------------------------
+
+# metmul. will move out.
+
+def has_datadog():
+    # return os.environ.get("METMUL_DATADOG", False)
+    return True
+
+def has_prometheus():
+    # return os.environ.get("METMUL_PROMETHEUS", False)
+    return True
+
+prom_gauge_dict = {}
+
+if has_prometheus():
+    try:
+        start_http_server(9090)
+    except Exception as e:
+        print("Error in acquiring prometheus port. Process ID:", os.getpid())
+
+def gauge(name, value, tags=None):
+    if has_datadog():
+        statsd.gauge(name, value, tags=tags)
+    if has_prometheus():
+        name = name.replace(".", "_")
+        label_kv = {kv.split(":")[0]: kv.split(":")[1] for kv in tags if ":" in kv}
+        all_tag_key = label_kv.keys()
+        gauge_dict_key = name + '@' + str(sorted(all_tag_key))
+        if gauge_dict_key not in prom_gauge_dict:
+            prom_gauge_dict[gauge_dict_key] = Gauge(name, 'auto generated: ' + name, all_tag_key)
+        prom_gauge_dict[gauge_dict_key].labels(**label_kv).set(value)
 
 # -----------------------------------------------------------------------------
 
@@ -133,6 +168,10 @@ class AdditionDataset(Dataset):
 # -----------------------------------------------------------------------------
 
 if __name__ == '__main__':
+    # first of all, float16 will give a nan loss, due to lack of range.
+    # bfloat16 doesn't work in MPS; but it able to learn 18-digit addition on gopher.
+    # import torch
+    # torch.set_default_dtype(torch.bfloat16)
 
     # get default config and overrides from the command line, if any
     config = get_config()
@@ -159,8 +198,8 @@ if __name__ == '__main__':
         ndigit = config.data.ndigit
         results = []
         mistakes_printed_already = 0
-        # TODO: this "factors" is of type long, which means our ndigit cannot exceed 18. We need to fix this.
-        factors = torch.tensor([[10**i for i in range(ndigit+1)][::-1]]).to(trainer.device)
+        # for larget digit learning, factors will go beyond long64 range, and we need to python magic to deal wih it in cpu
+        factors = numpy.array([[10**i for i in range(ndigit + 1)][::-1]])
         loader = DataLoader(dataset, batch_size=100, num_workers=0, drop_last=False)
         for b, (x, y) in enumerate(loader):
             x = x.to(trainer.device)
@@ -172,12 +211,14 @@ if __name__ == '__main__':
             d3 = d1d2d3[:, -(ndigit+1):]
             d3 = d3.flip(1) # reverse the digits to their "normal" order
             # decode the integers from individual digits
+            d1d2 = d1d2.cpu().numpy()
+            d3 = d3.cpu().numpy()
             d1i = (d1d2[:,:ndigit] * factors[:,1:]).sum(1)
             d2i = (d1d2[:,ndigit:ndigit*2] * factors[:,1:]).sum(1)
             d3i_pred = (d3 * factors).sum(1)
             d3i_gt = d1i + d2i # manually calculate the ground truth
             # evaluate the correctness of the results in this batch
-            correct = (d3i_pred == d3i_gt).cpu() # Software 1.0 vs. Software 2.0 fight RIGHT on this line haha
+            correct = (d3i_pred == d3i_gt)
             for i in range(x.size(0)):
                 results.append(int(correct[i]))
                 if not correct[i] and mistakes_printed_already < 2: # only print up to 5 mistakes to get a sense
@@ -202,23 +243,22 @@ if __name__ == '__main__':
         else:
             losses[trainer.iter_num % LOSS_AVG_LEN] = true_loss
         avg_loss = sum(losses) / len(losses)
-        statsd.gauge('llm.adder.loss', int(true_loss * 1000), tags=["n:" + str(config.data.ndigit), "fixed:1", "model:" + config.model.model_type])
+        if true_loss < 1e9: # float16 would mess up loss be NaN sometimes?
+            gauge('llm.adder.loss', int(true_loss * 1000), tags=["n:" + str(config.data.ndigit), "fixed:1", "model:" + config.model.model_type])
+        gauge('llm.adder.iter_time', int(trainer.iter_dt * 1000), tags=["n:" + str(config.data.ndigit), "fixed:1", "model:" + config.model.model_type])
 
-        if trainer.iter_num > 250000:
-            print("Reached 250k iterations, stopping")
-            sys.exit(0)
         target_loss = config.data.ndigit * 0.01
         if avg_loss < target_loss:
             print(f"Avg loss is {avg_loss}, less than {target_loss}, stopping")
             sys.exit(0)
 
-        if trainer.iter_num % 1000 == 0:
+        if trainer.iter_num % 10 == 0:
             print(f"iter_dt {trainer.iter_dt * 1000:.2f}ms; iter {trainer.iter_num}: train loss {trainer.loss.item():.5f}; avg loss {avg_loss:.5f}")
 
         if trainer.iter_num % 10000 == 0:
             # evaluate both the train and test score
             # train_max_batches = {1: None, 2: None, 3: 5}[config.data.ndigit] # if ndigit=2 we can afford the whole train set, ow no
-            train_max_batches = 100
+            train_max_batches = 5
             model.eval()
             with torch.no_grad():
                 train_score = eval_split(trainer, 'train', max_batches=train_max_batches)
