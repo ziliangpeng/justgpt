@@ -8,6 +8,7 @@ it seems ok to get to 6 digits using gpt-nano (occasionally stuck), start to get
 using gpt-micro makes 7 digits better.
 """
 
+import math
 import os
 import random
 import sys
@@ -247,7 +248,7 @@ if __name__ == '__main__':
             gauge('llm.adder.loss', int(true_loss * 1000), tags=["n:" + str(config.data.ndigit), "fixed:1", "model:" + config.model.model_type])
         gauge('llm.adder.iter_time', int(trainer.iter_dt * 1000), tags=["n:" + str(config.data.ndigit), "fixed:1", "model:" + config.model.model_type])
 
-        target_loss = config.data.ndigit * 0.01
+        target_loss = math.sqrt(config.data.ndigit) * 0.01
         if avg_loss < target_loss:
             print(f"Avg loss is {avg_loss}, less than {target_loss}, stopping")
             sys.exit(0)
