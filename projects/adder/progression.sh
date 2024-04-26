@@ -1,6 +1,6 @@
 #!/bin/bash
 
-for i in {1..4}
+for ((i=1; i<=$1; i++))
 do
     python longadder.py --trainer.device=mps --data.ndigit=$i
 done
