@@ -260,8 +260,9 @@ if __name__ == '__main__':
             print(f"Avg loss is {avg_loss}, less than {target_loss}, stopping")
             sys.exit(0)
 
+        gauge('llm.adder.iter_num', int(trainer.iter_num), tags=["n:" + str(config.data.ndigit), "model:" + model_name])
         if trainer.iter_num % 100 == 0:
-            print(f"iter_dt {trainer.iter_dt * 1000:.2f}ms; iter {trainer.iter_num}: train loss {trainer.loss.item():.5f}; avg loss {avg_loss:.5f}")
+            print(f"iter_dt {trainer.iter_dt * 1000:.2f}ms; iter {trainer.iter_num}: train loss {trainer.loss.item():.5f}; avg loss {avg_loss:.5f}; target loss {target_loss:.5f}")
 
         if trainer.iter_num % 10000 == 0:
             # evaluate both the train and test score
