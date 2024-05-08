@@ -177,6 +177,10 @@ if __name__ == '__main__':
     # get default config and overrides from the command line, if any
     config = get_config()
     config.merge_from_args(sys.argv[1:])
+    mc = config.model
+    params_given = all([mc.n_layer is not None, mc.n_head is not None, mc.n_embd is not None])
+    if params_given:
+        mc.model_type = None
     print(config)
     setup_logging(config)
     set_seed(config.system.seed)
@@ -244,17 +248,21 @@ if __name__ == '__main__':
         else:
             losses[trainer.iter_num % LOSS_AVG_LEN] = true_loss
         avg_loss = sum(losses) / len(losses)
+        model_name = config.model.model_type
+        if model_name is None:
+            model_name = f"{config.model.n_layer}x{config.model.n_head}x{config.model.n_embd}"
         if true_loss < 1e9: # float16 would mess up loss be NaN sometimes?
-            gauge('llm.adder.loss', int(true_loss * 1000), tags=["n:" + str(config.data.ndigit), "fixed:1", "model:" + config.model.model_type])
-        gauge('llm.adder.iter_time', int(trainer.iter_dt * 1000), tags=["n:" + str(config.data.ndigit), "fixed:1", "model:" + config.model.model_type])
+            gauge('llm.adder.loss', int(true_loss * 1000), tags=["n:" + str(config.data.ndigit), "fixed:1", "model:" + model_name])
+        gauge('llm.adder.iter_time', int(trainer.iter_dt * 1000), tags=["n:" + str(config.data.ndigit), "fixed:1", "model:" + model_name])
 
         target_loss = math.sqrt(config.data.ndigit) * 0.01
         if avg_loss < target_loss:
             print(f"Avg loss is {avg_loss}, less than {target_loss}, stopping")
             sys.exit(0)
 
+        gauge('llm.adder.iter_num', int(trainer.iter_num), tags=["n:" + str(config.data.ndigit), "model:" + model_name])
         if trainer.iter_num % 100 == 0:
-            print(f"iter_dt {trainer.iter_dt * 1000:.2f}ms; iter {trainer.iter_num}: train loss {trainer.loss.item():.5f}; avg loss {avg_loss:.5f}")
+            print(f"iter_dt {trainer.iter_dt * 1000:.2f}ms; iter {trainer.iter_num}: train loss {trainer.loss.item():.5f}; avg loss {avg_loss:.5f}; target loss {target_loss:.5f}")
 
         if trainer.iter_num % 10000 == 0:
             # evaluate both the train and test score
