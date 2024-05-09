@@ -8,6 +8,7 @@ import sys
 import torch
 from torch.utils.data import Dataset
 from torch.utils.data.dataloader import DataLoader
+from datadog import statsd
 
 from mingpt.model import GPT
 from mingpt.trainer import Trainer
@@ -106,9 +107,14 @@ if __name__ == '__main__':
 
     # iteration callback
     def batch_end_callback(trainer):
+        true_loss = trainer.loss.item()
+        model_name = config.model.model_type
+        statsd.gauge('llm.chargpt.loss', int(true_loss * 1000), tags=["model:" + model_name])
+        statsd.gauge('llm.chargpt.iter_time', int(trainer.iter_dt * 1000), tags=["model:" + model_name])
+        statsd.gauge('llm.chargpt.iter_num', int(trainer.iter_num), tags=["model:" + model_name])
 
         if trainer.iter_num % 10 == 0:
-            print(f"iter_dt {trainer.iter_dt * 1000:.2f}ms; iter {trainer.iter_num}: train loss {trainer.loss.item():.5f}")
+            print(f"iter_dt {trainer.iter_dt * 1000:.2f}ms; iter {trainer.iter_num}: train loss {true_loss:.5f}")
 
         if trainer.iter_num % 500 == 0:
             # evaluate both the train and test score
