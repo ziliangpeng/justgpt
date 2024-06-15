@@ -1,20 +1,11 @@
 """
-Trains a GPT to add n-digit numbers.
-
-    python simpleadder.py --data.ndigit=3
-
-
-it seems ok to get to 6 digits using gpt-nano (occasionally stuck), start to get stuck a lot at 7 digits.
-using gpt-micro makes 7 digits better.
+MNIST on Naive Vision Transformer.
 """
 
-import math
 import os
-import random
 import sys
-import json
 
-import numpy
+from loguru import logger
 
 from datadog import statsd
 from prometheus_client import Gauge, start_http_server
@@ -64,60 +55,30 @@ def gauge(name, value, tags=None):
 # -----------------------------------------------------------------------------
 
 def get_config():
-
     C = CN()
-
     # system
     C.system = CN()
     C.system.seed = 3407
     C.system.work_dir = './out/adder'
-
     # data
     C.data = MnistDataset.get_default_config()
-
     # model
     C.model = GPT.get_default_config()
     C.model.model_type = 'gpt-nano'
-
     # trainer
     C.trainer = Trainer.get_default_config()
     C.trainer.learning_rate = 3e-4 # the model we're using is so small that we can go a bit faster
     C.trainer.max_iters = 100000
     C.trainer.batch_size = 64
-
     return C
 
 # -----------------------------------------------------------------------------
 
 class MnistDataset(Dataset):
-    """
-    Creates n-digit addition problems. For example, if n=2, then an example
-    addition problem would be to add 85 + 50 = 135. This problem would be
-    represented as the following string for the GPT:
-
-    "8550531"
-
-    This is because:
-    - we are discarding the + and =, which are not necessary. We just encode the digits
-      of the input numbers concatenated together.
-    - the result 135 is encoded backwards to make the addition easier to learn for the
-      GPT model, because of how the addition algorithm works.
-
-    As one more example, the problem 6 + 39 = 45 would be encoded as:
-
-    "0639054"
-
-    where you will notice that we are padding with zeros to make sure that we always
-    produce strings of the exact same size: n + n + (n + 1). When n=2, this is 7.
-    At test time, we will feed in an addition problem by giving the first 2n digits,
-    and hoping that the GPT model completes the sequence with the next (n+1) digits
-    correctly.
-    """
 
     @staticmethod
     def get_default_config():
         C = CN()
-        C.ndigit = 7
         return C
 
     def __init__(self, config, split):
@@ -137,7 +98,7 @@ class MnistDataset(Dataset):
 
     def __len__(self):
         if self.split == 'test':
-            return 500
+            return min(5000, len(self.train_data))
         else:
             return len(self.train_data)
 
@@ -154,11 +115,6 @@ class MnistDataset(Dataset):
 # -----------------------------------------------------------------------------
 
 if __name__ == '__main__':
-    # first of all, float16 will give a nan loss, due to lack of range.
-    # bfloat16 doesn't work in MPS; but it able to learn 18-digit addition on gopher.
-    # import torch
-    # torch.set_default_dtype(torch.bfloat16)
-
     # get default config and overrides from the command line, if any
     config = get_config()
     config.merge_from_args(sys.argv[1:])
@@ -186,42 +142,30 @@ if __name__ == '__main__':
     def eval_split(trainer, split, max_batches=None):
         dataset = {'train':train_dataset, 'test':test_dataset}[split]
         results = []
-        # mistakes_printed_already = 0
-        # for larget digit learning, factors will go beyond long64 range, and we need to python magic to deal wih it in cpu
-        # factors = numpy.array([[10**i for i in range(ndigit + 1)][::-1]])
+        mistakes_printed_already = 0
         loader = DataLoader(dataset, batch_size=50, num_workers=0, drop_last=False)
         for b, (x, y) in enumerate(loader):
-            # print(b, x, y)
             x = x.to(trainer.device)
             # isolate the first two digits of the input sequence alone
-            d1d2 = x[:, :28*28]
+            img = x[:, :28*28]
             # let the model sample the rest of the sequence
-            d1d2d3 = model.generate(d1d2, 1, do_sample=False) # using greedy argmax, not sampling
+            imgd = model.generate(img, 1, do_sample=False) # using greedy argmax, not sampling
             # isolate the last digit of the sampled sequence
-            d3 = d1d2d3[:, -1:]
-            # d3 = d3.flip(1) # reverse the digits to their "normal" order
-            # decode the integers from individual digits
-            # d1d2 = d1d2.cpu().numpy()
-            d3 = d3.cpu().numpy()
-            # d1i = (d1d2[:,:ndigit] * factors[:,1:]).sum(1)
-            # d2i = (d1d2[:,ndigit:ndigit*2] * factors[:,1:]).sum(1)
-            # d3i_pred = (d3 * factors).sum(1)
-            # d3i_gt = d1i + d2i # manually calculate the ground truth
+            d = imgd[:, -1]
+            d = d.cpu().numpy()
             # evaluate the correctness of the results in this batch
-            d3_gt = (y[:, -1:]).numpy()
-            # if random.random() < 0.01:
-            #     print(d3, d3_gt)
-            correct = (d3 == d3_gt)
-            # print(correct)
+            d_gt = (y[:, -1]).numpy()
+            correct = (d == d_gt)
             for i in range(x.size(0)):
                 results.append(int(correct[i]))
-                # if not correct[i] and mistakes_printed_already < 2: # only print up to 5 mistakes to get a sense
-                #     mistakes_printed_already += 1
-                #     print("GPT claims that %d + %d = %d but gt is %d" % (d1i[i], d2i[i], d3i_pred[i], d3i_gt[i]))
+                if not correct[i] and mistakes_printed_already < 5: # only print up to 5 mistakes to get a sense
+                    mistakes_printed_already += 1
+                    logger.info("GPT claims %d but %d" % (d[i]-256, d_gt[i]-256))
             if max_batches is not None and b+1 >= max_batches:
                 break
         rt = torch.tensor(results, dtype=torch.float)
-        print("%s final score: %d/%d = %.2f%% correct" % (split, rt.sum(), len(results), 100*rt.mean()))
+        logger.info("%s final score: %d/%d = %.2f%% correct" % (split, rt.sum(), len(results), 100*rt.mean()))
+        gauge('llm.mnist.score', int(rt.mean() * 1000), tags=["split:" + split, "model:" + config.model.model_type])
         return rt.sum()
 
     # iteration callback
@@ -231,7 +175,7 @@ if __name__ == '__main__':
         global top_score
 
         true_loss = trainer.loss.item()
-        LOSS_AVG_LEN = 5000
+        LOSS_AVG_LEN = 500
         if len(losses) < LOSS_AVG_LEN:
             losses.append(true_loss)
         else:
@@ -241,27 +185,28 @@ if __name__ == '__main__':
         if model_name is None:
             model_name = f"{config.model.n_layer}x{config.model.n_head}x{config.model.n_embd}"
         if true_loss < 1e9: # float16 would mess up loss be NaN sometimes?
-            gauge('llm.adder.loss', int(true_loss * 1000), tags=["model:" + model_name])
-        gauge('llm.adder.iter_time', int(trainer.iter_dt * 1000), tags=["model:" + model_name])
+            gauge('llm.mnist.loss', int(true_loss * 1000), tags=["model:" + model_name])
+        gauge('llm.mnist.iter_time', int(trainer.iter_dt * 1000), tags=["model:" + model_name])
 
-        gauge('llm.adder.iter_num', int(trainer.iter_num), tags=["model:" + model_name])
+        gauge('llm.mnist.iter_num', int(trainer.iter_num), tags=["model:" + model_name])
         if trainer.iter_num % 100 == 0:
             print(f"iter_dt {trainer.iter_dt * 1000:.2f}ms; iter {trainer.iter_num}: train loss {trainer.loss.item():.5f}; avg loss {avg_loss:.5f};")
 
-        if trainer.iter_num % 100 == 0:
+        if trainer.iter_num > 0 and trainer.iter_num % 100 == 0:
             # evaluate both the train and test score
             train_max_batches = 20
             model.eval()
             with torch.no_grad():
                 train_score = eval_split(trainer, 'train', max_batches=train_max_batches)
-                test_score  = eval_split(trainer, 'test',  max_batches=None)
-            score = train_score + test_score
-            # save the model if this is the best score we've seen so far
-            if score > top_score:
-                top_score = score
-                print(f"saving model with new top score of {score}")
-                ckpt_path = os.path.join(config.system.work_dir, "model.pt")
-                torch.save(model.state_dict(), ckpt_path)
+                if trainer.iter_num % 1000 == 0:
+                    test_score = eval_split(trainer, 'test', max_batches=None)
+            # score = train_score + test_score
+            # # save the model if this is the best score we've seen so far
+            # if score > top_score:
+            #     top_score = score
+            #     print(f"saving model with new top score of {score}")
+            #     ckpt_path = os.path.join(config.system.work_dir, "model.pt")
+            #     torch.save(model.state_dict(), ckpt_path)
             # revert model to training mode
             model.train()
 
