@@ -98,9 +98,11 @@ class MnistDataset(Dataset):
         self.split = split  # train/test
 
         # split up all addition problems into either training data or test data
-        train_dataset = MNIST(root="./data", train=True, transform=None, download=True)
-        self.train_data = train_dataset.data[:1000]
-        self.train_labels = train_dataset.targets[:1000]
+        dataset = MNIST(
+            root="./data", train=bool(split == "train"), transform=None, download=True
+        )
+        self.data = dataset.data[:1000]
+        self.labels = dataset.targets[:1000]
 
     def get_vocab_size(self):
         return 256 + 10
@@ -110,13 +112,13 @@ class MnistDataset(Dataset):
 
     def __len__(self):
         if self.split == "test":
-            return min(5000, len(self.train_data))
+            return min(5000, len(self.data))
         else:
-            return len(self.train_data)
+            return len(self.data)
 
     def __getitem__(self, idx):
-        img = self.train_data[idx]
-        label = self.train_labels[idx].item() + 256
+        img = self.data[idx]
+        label = self.labels[idx].item() + 256
         dix = torch.cat((img.flatten(), torch.tensor([label])), dim=0).numpy()
         # x will be input to GPT and y will be the associated expected outputs
         x = torch.tensor(dix[:-1], dtype=torch.long)
@@ -239,8 +241,8 @@ if __name__ == "__main__":
                 train_score = eval_split(
                     trainer, "train", max_batches=train_max_batches
                 )
-                if trainer.iter_num % 1000 == 0:
-                    test_score = eval_split(trainer, "test", max_batches=None)
+                # if trainer.iter_num % 1000 == 0:
+                test_score = eval_split(trainer, "test", max_batches=None)
             # score = train_score + test_score
             # # save the model if this is the best score we've seen so far
             # if score > top_score:
