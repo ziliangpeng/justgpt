@@ -101,8 +101,8 @@ class MnistDataset(Dataset):
         dataset = MNIST(
             root="./data", train=bool(split == "train"), transform=None, download=True
         )
-        self.data = dataset.data[:1000]
-        self.labels = dataset.targets[:1000]
+        self.data = dataset.data
+        self.labels = dataset.targets
 
     def get_vocab_size(self):
         return 256 + 10
@@ -164,7 +164,8 @@ if __name__ == "__main__":
         dataset = {"train": train_dataset, "test": test_dataset}[split]
         results = []
         mistakes_printed_already = 0
-        loader = DataLoader(dataset, batch_size=50, num_workers=0, drop_last=False)
+        # this is thec eval loader, different from the train loader.
+        loader = DataLoader(dataset, batch_size=10, num_workers=0, drop_last=False)
         for b, (x, y) in enumerate(loader):
             x = x.to(trainer.device)
             # isolate the first two digits of the input sequence alone
@@ -233,16 +234,16 @@ if __name__ == "__main__":
                 f"iter_dt {trainer.iter_dt * 1000:.2f}ms; iter {trainer.iter_num}: train loss {trainer.loss.item():.5f}; avg loss {avg_loss:.5f};"
             )
 
-        if trainer.iter_num > 0 and trainer.iter_num % 100 == 0:
+        if trainer.iter_num > 0 and trainer.iter_num % 10 == 0:
             # evaluate both the train and test score
-            train_max_batches = 20
+            train_max_batches = 10
             model.eval()
             with torch.no_grad():
                 train_score = eval_split(
                     trainer, "train", max_batches=train_max_batches
                 )
-                # if trainer.iter_num % 1000 == 0:
-                test_score = eval_split(trainer, "test", max_batches=None)
+                if trainer.iter_num % 1000 == 0:
+                    test_score = eval_split(trainer, "test", max_batches=None)
             # score = train_score + test_score
             # # save the model if this is the best score we've seen so far
             # if score > top_score:
